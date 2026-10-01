@@ -1,0 +1,97 @@
+name: verify
+
+# This is the fork's own workflow.  Upstream's .travis.yml targeted
+# travis-ci.org, which is shut down; it was deleted rather than pointed
+# somewhere else (see CHANGELOG.md entry 1).
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ZIG_VERSION: "0.16.0"
+
+jobs:
+  provenance:
+    name: licence and provenance integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the pinned upstream tag can be diffed against.
+          fetch-depth: 0
+
+      - name: Required fork files are present
+        run: |
+          for f in LICENSE NOTICE.md UPSTREAM.md UPSTREAM.sha256 CHANGELOG.md FORK-NOTES.md README.zig.md; do
+            test -s "$f" || { echo "missing or empty: $f" >&2; exit 1; }
+          done
+
+      - name: Carried-over upstream sources are byte-identical to v1.14.0
+        run: sha256sum -c UPSTREAM.sha256
+
+      - name: No upstream source tree was modified
+        run: |
+          git diff --exit-code v1.14.0 -- include tests examples docs LICENSE README.md GNUmakefile
+
+      - name: UPSTREAM.md pins the tag this tree was cloned at
+        run: |
+          grep -q '726a093cd9a73f3ec3c8d7a70ff10ed8efec8d13' UPSTREAM.md
+          grep -q 'v1.14.0' UPSTREAM.md
+
+  native:
+    name: native build, tests and smoke
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - job: build
+            flags: ""
+          - job: test-debug
+            flags: "test"
+          - job: test-release-safe
+            flags: "test -Doptimize=ReleaseSafe"
+          - job: smoke
+            flags: "smoke"
+          - job: check
+            flags: "check"
+          - job: consumer
+            flags: "consumer"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - name: zig build ${{ matrix.flags }}
+        run: zig build ${{ matrix.flags }} --summary all
+
+  cross:
+    name: check ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-linux-gnu
+          - aarch64-linux-gnu
+          - aarch64-macos-none
+          - x86_64-windows-gnu
+          - riscv64-linux-gnu
+          - wasm32-wasi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      # Compiled, never executed: no cross-arch emulator is assumed.
+      - name: zig build check -Dtarget=${{ matrix.target }}
+        # Upstream gccfeatures.h explicitly rejects these architectures.
+        # Keep actual compile attempts visible without claiming support.
+        continue-on-error: ${{ matrix.target == 'riscv64-linux-gnu' || matrix.target == 'wasm32-wasi' }}
+        run: zig build check -Dtarget=${{ matrix.target }} --summary all
+

@@ -1,0 +1,14 @@
+.{
+    .name = .random123_consumer,
+    .version = "0.0.1",
+    .minimum_zig_version = "0.16.0",
+    .fingerprint = 0xd92fa1fcd1ff93df,
+    .dependencies = .{
+        .random123 = .{ .path = ".." },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

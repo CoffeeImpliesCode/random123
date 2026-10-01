@@ -44,3 +44,8 @@
 **/time_boxmuller_cuda
 **/time_cuda
 **/*.i
+
+# zig build artefacts (fork addition; the entries above are upstream's)
+.zig-cache/
+zig-cache/
+zig-out/
