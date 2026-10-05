@@ -49,3 +49,11 @@
 .zig-cache/
 zig-cache/
 zig-out/
+
+# nix / devenv artefacts (fork addition; the entries above are upstream's)
+# `nix build` in the checkout drops a `result` symlink, and `devenv shell`
+# writes its resolved state under .devenv/ in the working tree.
+.devenv/
+.direnv/
+/result
+/result-*

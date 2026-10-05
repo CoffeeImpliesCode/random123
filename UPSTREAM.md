@@ -6,10 +6,10 @@
 |---|---|
 | Project | Random123 — a Library of Counter-Based Random Number Generators |
 | Authors | John Salmon, Mark Moraes |
-| Copyright | D. E. Shaw Research — `LICENSE` says "Copyright 2010-2012", the individual upstream headers say "Copyright 2010-2011" |
+| Copyright | D. E. Shaw Research — `LICENSE` says "Copyright 2010-2012", the individual upstream headers say "Copyright 2010-2011", `features/clangfeatures.h` says "Copyright 2010-2016", and `features/pgccfeatures.h` carries a second notice, "Copyright (c) 2013, Los Alamos National Security, LLC"; the per-file years are the ones those files state |
 | Canonical URL | <https://github.com/DEShawResearch/random123> |
 | Homepage | <http://deshawresearch.com/resources_random123.html> |
-| Licence | BSD-3-Clause (see `LICENSE`, reproduced unmodified) |
+| Licence | BSD-3-Clause (see `LICENSE`, reproduced unmodified), with the second notice in `include/Random123/features/pgccfeatures.h:33-44` recorded in `NOTICE.md` §3 and `FORK-LICENSE.md` §5 |
 | Tag pinned | `v1.14.0` |
 | Commit pinned | `726a093cd9a73f3ec3c8d7a70ff10ed8efec8d13` ("Release 1.14.0") |
 | Cloned from | `https://github.com/DEShawResearch/random123.git` |
@@ -35,8 +35,8 @@ will fail loudly if any upstream file drifted in the meantime.
 ## Integrity
 
 `UPSTREAM.sha256` records the SHA-256 of every upstream file this fork carries
-over unmodified (111 records: `include/`, `tests/`, `examples/`, `docs/`,
-`LICENSE`, `README.md`, `GNUmakefile`). Check it with:
+over unmodified (102 records: `include/`, `tests/`, `examples/`, `docs/`,
+`LICENSE`, `README.upstream.md`, `GNUmakefile`). Check it with:
 
 ```
 sha256sum -c UPSTREAM.sha256
@@ -46,13 +46,30 @@ sha256sum -c UPSTREAM.sha256
 records the file bytes `sha256sum` follows, not the Git symlink blob. CI's
 pinned-tree diff also checks the link itself.
 
-Two upstream files are deliberately **not** in that manifest:
+Four upstream files are deliberately **not** in that manifest:
 
 * `.gitignore` — this fork appends Zig build artefacts to it. The upstream
   entries are preserved verbatim above them.
 * `.travis.yml` — upstream CI pointed at travis-ci.org, which is shut down.
   Running another maintainer's CI is not this fork's business; see
   `CHANGELOG.md` entry 1.
+* `README.md` — this repository's `README.md` is the fork's own document, in
+  the canonical fork order (native-source deviations, native-build deviations
+  and dated history, build/run/test matrix, consumption). Upstream's `README.md`
+  is therefore carried, byte for byte and under its own digest, as
+  `README.upstream.md`: SHA-256
+  `71a51dfa922bee8352ba5500ec97ab80875c712dc759528e8fc5ec5b1fd0b28f`, which is
+  the digest the manifest carried for `README.md` before the move. Upstream's
+  README was not edited and not deleted; it has a different name now, and the
+  Zig interface documentation lives beside it in `README.zig.md`.
+
+Three upstream files are deliberately **kept but not compiled**:
+`features/pgccfeatures.h`, `features/msvcfeatures.h` and
+`features/nvccfeatures.h` are compiler-specific feature headers that
+`features/compilerfeatures.h` reaches only under `__PGI`, `_MSC_FULL_VER` and
+`__CUDACC__` respectively. They are installed verbatim and covered by the
+manifest. `pgccfeatures.h` also carries the only second licence notice in the
+upstream tree; see `NOTICE.md` §3.
 
 `tests/kat_vectors` is the only known-answer fixture this fork replays, and it
 is the upstream file itself, byte for byte: the build copies it next to a
@@ -79,6 +96,30 @@ counters are `__m128i` values that cannot cross a portable boundary, nor
 Those remain available to C and C++ consumers through the installed upstream
 headers, unchanged.
 
+The exported surface is fixed and checkable: 28 symbols unconditionally
+(`r123_bridge_{philox,threefry}{2,4}x{32,64}_keyinit` and `_R`, plus the twelve
+`r123_bridge_u01_*` conversions) and 5 under the AES-NI gate
+(`r123_bridge_have_aesni`, `aesni4x32_keyinit`, `aesni4x32_R`,
+`ars4x32_keyinit`, `ars4x32_R`). Every one of them takes and returns upstream's
+`r123arrayNxW` structs by value, which `random123_bridge.c` static-asserts
+against `sizeof`, so a layout change upstream fails this build rather than
+silently crossing the boundary.
+
+There are no data symbols: `random123_bridge.c` defines functions, file-scope
+constants that are `enum` values rather than objects, and static assertions,
+and nothing else. So the whole ABI is reached through function calls, with no
+address-of-a-data-symbol case anywhere in it — which is the one thing a loader
+or a `dlsym` consumer would otherwise have to know about before it could use
+this library.
+
+This artifact is a real library and is packaged like one: `zig build` builds
+and installs it as static by default, `-Dlinkage=dynamic` builds the shared
+variant of the same bridge, and both install the same header tree. A
+header-only upstream is the reason the ABI had to be written; it is not a
+reason to exempt the result from ordinary shared packaging. The status of
+`-Dlinkage` in this migration is recorded in `README.md` §3: it is a build
+option this tree is being given, not a capability a gate has observed.
+
 ## System-library mode
 
 There is none, deliberately. A header-only library installs no binary, so a
@@ -87,6 +128,55 @@ for `b.systemIntegrationOption` to bind to, and nothing for it to select. This
 is a packaging decision recorded by the foundation fork contract, not an
 observed build failure. Consumers who want the plain upstream headers without
 this package can use the tree as-is, exactly as upstream intends.
+
+## Packaging
+
+| File | What it is |
+|---|---|
+| `package.nix` | one uncurried derivation taking `{ lib, stdenv, zig, linkage ? "static", optimize ? "ReleaseSafe", target ? null, aesni ? false }`. Source-only: `src` is this directory filtered of `.git`, `.devenv`, `.devenv.flake.nix`, `.direnv`, `.zig-cache`, `zig-cache`, `zig-out`, `zig-pkg`, `result` and `result-*`; nothing fetched, no sibling import, no host path. Its only phase sets the two Zig caches under `$TMPDIR` and runs one `zig build install -j"$NIX_BUILD_CORES" --prefix "$out" -Doptimize=… -Dcpu=baseline -Dlinkage=…`. It installs nothing itself. |
+| `flake.nix` | `packages.<system>.static` and `.shared`, both `pkgs.callPackage ./package.nix`, with `default` passing no linkage. nixpkgs pinned by revision. No devShell: `devenv` is the development environment. |
+| `devenv.nix`, `devenv.yaml`, `.envrc` | tools-only shell pinned to Zig 0.16.0, asserting `zig.version == "0.16.0"`, plus lazy `outputs.static`, `outputs.shared` and `outputs.default` calling the same `package.nix`. `devenv build outputs.static` is the packaging route; entering the shell realises nothing. |
+
+One writer per installed path: `build.zig` installs the artifact, the header
+tree, `random123.pc` and the licence records, and the derivation adds none of
+them. An output therefore contains
+
+* `lib/librandom123.a`, or `librandom123.so` / `.dylib` under
+  `-Dlinkage=dynamic` (plus the Windows import library beside the DLL);
+* the whole `include/Random123` tree, `.h` and `.hpp`, and
+  `include/random123_bridge.h`;
+* `lib/pkgconfig/random123.pc` — `prefix=${pcfiledir}/../..`,
+  `Libs: -L${libdir} -lrandom123`, `Cflags: -I${includedir}`, version from
+  `build.zig.zon`, no `Requires:` (the library needs libc and nothing else);
+* `share/licenses/random123/{LICENSE, NOTICE.md, FORK-LICENSE.md, UPSTREAM.md,
+  README.upstream.md}` — upstream's per-file notices travel inside the header
+  tree, `pgccfeatures.h`'s second notice among them;
+
+and not generated HTML documentation, the upstream examples, the upstream
+tests or any tool. `tests/kat_vectors` still travels in the *Zig* manifest for
+the known-answer test, which is a different route from the Nix output.
+
+Every Nix build passes `-Dcpu=baseline`: `b.standardTargetOptions` otherwise
+resolves the builder's own CPU, and the AES decision reads it. A baseline x86_64
+model carries no `aes` feature, so `resolveAesniTarget`
+(`build.zig:567-577`, `isX86(target) and cpuHasAes(target)`) selects false and
+the artifact carries the 28 common symbols only; the generated Windows export
+list (`build.zig:353-361`) names the same 28. `aesni = true;` passes
+`-Daesni=true`, which adds the feature back to the target and those five
+symbols with it. `static` means a static library artifact; no
+wholly-static-executable claim is made.
+
+`flake.lock` and `devenv.lock` are the integrator's to write. The pins are by
+revision: nixpkgs `c7def046b9a883d46974757852106483d741586f` for the flake, and
+devenv-nixpkgs `c2f38fe7f9e04d9aadd354d380f2bd40531d9737` for the shell, whose
+nixpkgs-src node is that same revision. Nix copies a Git work tree as its
+tracked files, so these files have to be committed before a flake build sees
+them.
+
+`-Druntime` is not in the tree yet. It is in scope for this SDK: it needs the
+runtime graph module, which the API owner lands after the BLAKE3 pilot's
+verification, and until then dispatch is direct. That is a staged step, not an
+exclusion.
 
 ## Platform notes
 
@@ -201,3 +291,20 @@ The first four compile. `riscv64-linux-gnu` and `wasm32-wasi` fail, in
 `include/Random123/features/gccfeatures.h:37-45` — see "Upstream architecture
 guard" above. They stay in the matrix on purpose: dropping them would report a
 coverage the package does not have.
+
+**Status of that statement.** It describes the tree as of the previous
+development wave, and `CHANGELOG.md` entries 25 and 26 record the runs it came
+from. The current tree has added `-Dlinkage`, the installed pkg-config
+metadata, the README relocation and the Nix packaging, and **no gate has
+observed any of it yet**. Every row of the matrix in `README.md` §3 is
+`PENDING-VERIFICATION` until the integrator runs it. What the integrator needs
+to run, beyond the six targets above:
+
+* `zig build install --prefix <dir>` in all four optimize modes, for
+  `-Dlinkage=static` and `-Dlinkage=dynamic`, and the installed layout of each;
+* `sha256sum -c UPSTREAM.sha256` after the README relocation, which now covers
+  `README.upstream.md`;
+* `devenv shell` entry, and `nix build .#packages.<system>.static` and
+  `.shared` for their output dependency records;
+* a C consumer compiled against the installed output, and a Zig consumer
+  compiled through the fetched package.

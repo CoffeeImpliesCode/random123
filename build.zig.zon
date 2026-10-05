@@ -1,27 +1,105 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright 2025 CoffeeImpliesCode contributors.
 .{
     .name = .random123,
+    // Upstream's own pin, carried unchanged. `build.zig` does not parse this
+    // for anything except the `Version:` field of the generated pkg-config
+    // record, so it names the upstream release and nothing else.
     .version = "1.14.0",
     .minimum_zig_version = "0.16.0",
-    .fingerprint = 0xc9d650ae8c9fc996,
+    // Identifies this package unambiguously. The value belongs to this manifest
+    // only and must not be copied from another package in this workspace.
+    .fingerprint = 0xc9d650ae8c9fc996, // Changing this has security and trust implications.
+
+    // Random123 is vendored in this repository, byte for byte, so there is no
+    // network dependency to declare.
     .dependencies = .{},
+
+    // Every root path of the repository, minus build output and CI definition.
+    // `.zig-cache/` and `zig-out/` are absent by construction; the Zig entries
+    // at the end of `.gitignore` keep them out of the tree as well. A `.paths`
+    // entry naming a missing file is a hard configure error, not a warning.
+    //
+    // Provenance, licence and packaging records ship with the package: `zig
+    // build`, a Nix derivation and a `devenv` shell are three ways to use one
+    // source tree, and a fetched copy that carried the library but not its
+    // packaging or its licence records could not be rebuilt, repackaged or
+    // re-verified from itself. `README.md` is this fork's own README;
+    // upstream's README is preserved separately and byte for byte as
+    // `README.upstream.md`, and `zig build install` publishes both that file
+    // and the licence records under `share/licenses/random123/`.
     .paths = .{
+        // The build graph, the module it publishes and the fork's C bridge.
+        // `zig` also carries the test roots, the smoke example and
+        // `zig/bridge/random123_bridge.{c,h}`, which is the only C source this
+        // package compiles.
         "build.zig",
         "build.zig.zon",
         "root.zig",
         "zig",
+        // The runtime dispatch route. `build.zig` imports
+        // `runtime/graph.zig` unconditionally, so a fetched copy without this
+        // directory could not even configure its build graph, and
+        // `-Druntime=true` needs the descriptor and the loader core beside it.
+        "runtime",
+        // The separate consumer package: it reaches this one by relative path
+        // through `b.dependency`, so a fetched copy resolves it without a
+        // network fetch or a registry entry.
+        "consumer/build.zig",
+        "consumer/build.zig.zon",
+        "consumer/src/main.zig",
+        // Upstream Random123, whole and untouched: the header-only library this
+        // package wraps, the known-answer fixture and upstream test suite, the
+        // examples, the Doxygen sources, and upstream's own GNUmakefile. All of
+        // it is covered by `UPSTREAM.sha256`.
         "include",
         "tests",
         "examples",
         "docs",
-        "consumer",
         "GNUmakefile",
+        // Upstream's BSD-3-Clause text and this fork's records.
         "LICENSE",
         "README.md",
+        "README.upstream.md",
         "README.zig.md",
         "UPSTREAM.md",
         "UPSTREAM.sha256",
         "NOTICE.md",
+        "FORK-LICENSE.md",
         "CHANGELOG.md",
         "FORK-NOTES.md",
+        // The Nix and devenv layer. `package.nix` is the one source-only
+        // derivation both `flake.nix` and `devenv.nix` call, and it is listed
+        // next to them deliberately: a fetched copy that had the flake but not
+        // the package could not be built by either. `.envrc` is listed because
+        // `devenv` writes it and a package whose own shell cannot be entered is
+        // not a whole package. `flake.lock` is listed for the same reason:
+        // it is in the tree and it is the pin that makes `flake.nix` resolve
+        // the way it was written to resolve, so a fetched copy that carried
+        // the flake without it would re-lock against the network on first
+        // evaluation and write into its own source tree. Only `devenv.lock`
+        // is the driver's to write and absent here, and that is the only lock
+        // file deliberately left out.
+        "package.nix",
+        "flake.nix",
+        "devenv.nix",
+        "devenv.yaml",
+        ".envrc",
+        "flake.lock",
+        // The cross-test profile is package content for the same reason the
+        // derivation and the shell above are: the published 53-cell matrix is
+        // a delivery fact about this package, and the profile is where it says
+        // so -- the static linked closure for every cell, the two
+        // architectures upstream's guard refuses left in the matrix rather
+        // than narrowed away, and target, optimization mode and runner
+        // selection left to the caller.  A fetched copy without it would run
+        // the harness's own defaults instead, which is a different gate
+        // wearing the same matrix's exit code.
+        "cross-test.profile.sh",
+        // The fork's ignore rules travel with the package so a fetched copy
+        // keeps upstream's conventions and gains nothing by accident. The CI
+        // definitions under `.github/` are deliberately absent: they build this
+        // repository, they are not package content.
+        ".gitignore",
     },
 }

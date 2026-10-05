@@ -6,10 +6,17 @@
 # .travis.yml is deliberately absent: upstream's CI pointed at travis-ci.org, which
 # is shut down, and it is not this fork's business to keep it running.
 #
+# README.md is absent because it is no longer upstream's: this repository's
+# README.md is the fork's own document.  Upstream's README.md is carried here
+# byte for byte as README.upstream.md, under its own name, and this manifest
+# covers that copy.  The digest is unchanged; only the path moved.  Upstream's
+# README.md is not modified by that, it is not deleted, and nothing else in the
+# tree changed.
+#
 # Verify with:  sha256sum -c UPSTREAM.sha256
 f54a270ee3de2b4e91467ab5022509efff25a23f0a5b7c88a6b83b1a96657199  GNUmakefile
 5fd0885ab205878bd90c19144677286252eb9b988c1545a3a910edfe1e27b6df  LICENSE
-71a51dfa922bee8352ba5500ec97ab80875c712dc759528e8fc5ec5b1fd0b28f  README.md
+71a51dfa922bee8352ba5500ec97ab80875c712dc759528e8fc5ec5b1fd0b28f  README.upstream.md
 70ca4bf33b8d8ff86ed8565bd86ac18c559dd437d0608749f81d9dbbdba96911  docs/Doxyfile
 c50de0f228e30f3fda707aa79a340cbd428d25aa2a60828c156b75f458cd64ae  docs/cbrng.dox
 186956d747a758993bb202409e36e25da4402d99c173f90821b3113f28159585  docs/releasenotes.dox

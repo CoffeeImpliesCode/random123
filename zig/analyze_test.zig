@@ -19,6 +19,11 @@ fn exerciseGenerator(comptime G: type) void {
     _ = G.rounds(0, ctr, key);
     _ = G.rounds(1, ctr, key);
     _ = G.rounds(G.max_rounds, ctr, key);
+    // The refusal path.  This file is compiled and never run (`build.zig`
+    // gives `check` and `matrix` the compile step and never a run step), so
+    // the call is made outright: wrapping it in `if (false)` would leave the
+    // branch unanalyzed, which is the trap `FORK-NOTES.md` entry 7 records.
+    _ = G.rounds(G.max_rounds + 1, ctr, key);
 
     // The type-level surface must resolve too.
     _ = G.name;
@@ -29,6 +34,45 @@ fn exerciseGenerator(comptime G: type) void {
 
 test "every public generator method analyzes" {
     inline for (random123.generators) |G| exerciseGenerator(G);
+}
+
+test "a consumer-built generator analyzes" {
+    // `random123.Generator` is published for exactly this: a generator this
+    // package does not itself expose, declared with the same six `spec`
+    // fields. This reaches the factory's array/word/default checks and
+    // analyzes its callback through real method calls.
+    //
+    // The spec below is Philox4x32's, with a non-default round count, so the
+    // built type is a real generator and every member below is a real call.
+    const Custom = random123.Generator(.{
+        .name = "custom-philox4x32",
+        .counter = [4]u32,
+        .key = [2]u32,
+        .default_rounds = 7,
+        .max_rounds = 16,
+        .round = random123.c.r123_bridge_philox4x32_R,
+    });
+
+    const ctr: Custom.counter = .{ 0x243f6a88, 0x85a308d3, 0x13198a2e, 0x03707344 };
+    const key: Custom.key = .{ 0xa4093822, 0x299f31d0 };
+
+    _ = Custom.name;
+    _ = Custom.init(key);
+    _ = Custom.rounds(0, ctr, key);
+    _ = Custom.rounds(1, ctr, key);
+    _ = Custom.rounds(Custom.max_rounds, ctr, key);
+    _ = Custom.rounds(Custom.max_rounds + 1, ctr, key);
+
+    // `generate` at the spec's own default.  Upstream's fixture carries this
+    // exact counter and key at seven rounds (`tests/kat_vectors:26`), and
+    // `zig/kat_test.zig` replays that line through
+    // `random123.Philox4x32.rounds`, so the arithmetic a consumer reaches
+    // through the factory is the one the fixture pins.
+    _ = Custom.generate(ctr, key);
+    _ = Custom.default_rounds;
+    _ = Custom.counter_bits;
+    _ = Custom.key_bits;
+    _ = Custom.word_bits;
 }
 
 test "every public unit-interval conversion analyzes" {
@@ -46,54 +90,13 @@ test "every public unit-interval conversion analyzes" {
     _ = random123.UnitInterval.openOpen64Double(0);
 }
 
-test "every public C keyinit wrapper analyzes" {
-    // These eight wrappers are compiled into the artifact, installed in the
-    // public header and translated into `c`, but nothing else in this package
-    // calls them: the facade's `init` is its own identity, not a call through
-    // the bridge.  Without this block their signatures would never be
-    // checked, and a bridge drift would surface in a downstream C consumer
-    // instead of in `zig build check`.
-    //
-    // Argument widths are upstream's key widths: a Philox key has half as many
-    // words as its counter (philox.h:317-323), a Threefry key the same number
-    // (threefry.h:199, threefry.h:303).
-    //
-    // Each wrapper's *result* is handed to a real generation rather than
-    // discarded.  That checks the returned key type as well as the parameter,
-    // and it keeps the external symbol alive in the linked test binary, so the
-    // wrapper is link-checked and not merely referenced.
-    const P2x32 = random123.Philox2x32;
-    const p2x32_key = random123.c.r123_bridge_philox2x32_keyinit(.{ .v = .{1} }).v;
-    _ = P2x32.generate(std.mem.zeroes(P2x32.counter), p2x32_key);
-
-    const P4x32 = random123.Philox4x32;
-    const p4x32_key = random123.c.r123_bridge_philox4x32_keyinit(.{ .v = .{ 1, 2 } }).v;
-    _ = P4x32.generate(std.mem.zeroes(P4x32.counter), p4x32_key);
-
-    const P2x64 = random123.Philox2x64;
-    const p2x64_key = random123.c.r123_bridge_philox2x64_keyinit(.{ .v = .{1} }).v;
-    _ = P2x64.generate(std.mem.zeroes(P2x64.counter), p2x64_key);
-
-    const P4x64 = random123.Philox4x64;
-    const p4x64_key = random123.c.r123_bridge_philox4x64_keyinit(.{ .v = .{ 1, 2 } }).v;
-    _ = P4x64.generate(std.mem.zeroes(P4x64.counter), p4x64_key);
-
-    const T2x32 = random123.Threefry2x32;
-    const t2x32_key = random123.c.r123_bridge_threefry2x32_keyinit(.{ .v = .{ 1, 2 } }).v;
-    _ = T2x32.generate(std.mem.zeroes(T2x32.counter), t2x32_key);
-
-    const T4x32 = random123.Threefry4x32;
-    const t4x32_key = random123.c.r123_bridge_threefry4x32_keyinit(.{ .v = .{ 1, 2, 3, 4 } }).v;
-    _ = T4x32.generate(std.mem.zeroes(T4x32.counter), t4x32_key);
-
-    const T2x64 = random123.Threefry2x64;
-    const t2x64_key = random123.c.r123_bridge_threefry2x64_keyinit(.{ .v = .{ 1, 2 } }).v;
-    _ = T2x64.generate(std.mem.zeroes(T2x64.counter), t2x64_key);
-
-    const T4x64 = random123.Threefry4x64;
-    const t4x64_key = random123.c.r123_bridge_threefry4x64_keyinit(.{ .v = .{ 1, 2, 3, 4 } }).v;
-    _ = T4x64.generate(std.mem.zeroes(T4x64.counter), t4x64_key);
-}
+// The eight C `keyinit` wrappers used to have a compile-only block here, each
+// call's result handed to a generation so the symbol stayed linked.  That was a
+// presence and implementation check: it proved a name existed and type-checked,
+// which is not a property a consumer depends on and which would not notice a
+// wrapper that resolved to something else.  `zig/kat_test.zig` now drives all
+// eight against upstream's own known answers instead, so the same signatures
+// are checked by what they compute rather than by what they are called.
 
 test "the AES-NI bridge analyzes on a target that provides AES-NI" {
     // Not an assertion about presence: when this build has no AES-NI the block

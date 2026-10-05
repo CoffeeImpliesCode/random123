@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
+#
+# The development environment's one input, pinned by revision.
+#
+# Same tree as the one `flake.nix` names for the packages, so the shell and the
+# Nix outputs cannot come from two different nixpkgs.  The revision is the
+# devenv-nixpkgs commit observed in this workspace's current devenv lock
+# generation; it is not a branch, because a branch would move underneath this
+# package.  `devenv.lock` records the resolved nodes and is written by the
+# integrator.
+inputs:
+  nixpkgs:
+    url: github:cachix/devenv-nixpkgs/c2f38fe7f9e04d9aadd354d380f2bd40531d9737

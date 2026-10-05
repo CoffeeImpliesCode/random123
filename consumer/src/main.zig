@@ -6,10 +6,77 @@
 //! counter and key) and the raw translated C escape hatch, then prints a
 //! deterministic report.
 //!
+//! Every counter and key below is spelled out by this program.  The package
+//! holds no counter, keeps no key and draws nothing from an entropy source, so
+//! the whole of the "random" input to these lines is what you can read here.
+//!
+//! The same source builds against a linked bridge and against a runtime-loaded
+//! one.  `random123.runtime_loaded` is a comptime constant, so the difference is
+//! one branch and no duplicated program: in a runtime-loading build the
+//! provider is named on the command line (`--provider <path>`) or in
+//! `RANDOM123_TEST_PROVIDER`, loaded once, and the same known answers below
+//! follow through the table.  Nothing is loaded by default, no other file is
+//! tried, and a build told nothing exits non-zero naming both ways to say it.
+//!
 //! Run with `zig build run` from the consumer/ directory.
 
 const std = @import("std");
 const random123 = @import("random123");
+
+/// The environment variable that names a provider when no `--provider` argument
+/// is given.  Spelled here rather than imported: this is a separate package and
+/// reaches Random123 only through its published module, so the name is part of
+/// what the package documents rather than something it can share.
+const provider_variable = "RANDOM123_TEST_PROVIDER";
+
+/// This build is runtime-loaded and was not told which provider to load.
+///
+/// Separate from `random123.LoadError` on purpose: every member of that set is
+/// something the loader checked about a request it *was* given, and this is the
+/// absence of a request.
+const NoProviderConfigured = error{NoProviderConfigured};
+
+/// Everything `loadProvider` can decline: the loader's own errors, which come
+/// from the request it forwards, plus the absence of a request to forward.
+const LoadFailure = NoProviderConfigured || random123.LoadError;
+
+/// Load the provider, or stop without one.
+///
+/// In a linked build the body is compiled out and the bridge is already there,
+/// so this costs the consumer nothing and cannot fail.
+fn loadProvider(init: std.process.Init) LoadFailure!void {
+    if (comptime !random123.runtime_loaded) return;
+    const args = init.minimal.args.toSlice(init.arena.allocator()) catch &.{};
+    if (fromArgs(args) orelse init.environ_map.get(provider_variable)) |path| {
+        return random123.load(.{ .path = path });
+    }
+    return noProvider();
+}
+
+/// The path that follows `--provider`, or null when the arguments name none.
+fn fromArgs(argv: []const [:0]const u8) ?[]const u8 {
+    var index: usize = 1;
+    while (index < argv.len) : (index += 1) {
+        if (!std.mem.eql(u8, argv[index], "--provider")) continue;
+        if (index + 1 >= argv.len) return null;
+        return argv[index + 1];
+    }
+    return null;
+}
+
+/// Say which variable is missing.  An error name alone would send the next
+/// person into the loader instead of to the command line.
+fn noProvider() NoProviderConfigured {
+    std.debug.print(
+        "consumer: this is a runtime-loading build and was not told which " ++
+            "provider to load. Pass --provider <path>, or export " ++
+            "RANDOM123_TEST_PROVIDER, naming a shared object built from the " ++
+            "package's C bridge and exporting its r123_bridge_* names. Nothing " ++
+            "is loaded by default and no other file is tried.\n",
+        .{},
+    );
+    return error.NoProviderConfigured;
+}
 
 fn expectWords(comptime T: type, got: T, want: T) !void {
     if (!std.meta.eql(got, want)) {
@@ -102,6 +169,10 @@ fn streamSummary() u64 {
 }
 
 pub fn main(init: std.process.Init) !void {
+    // Before anything reaches the bridge. In a linked build this compiles to
+    // nothing and every call below is the ordinary linked one.
+    try loadProvider(init);
+
     try verifyKnownAnswers();
 
     var buffer: [4096]u8 = undefined;
@@ -110,6 +181,13 @@ pub fn main(init: std.process.Init) !void {
     defer out.flush() catch {};
 
     try out.writeAll("random123 consumer\n");
+    // Which configuration produced the answers below, stated rather than
+    // implied: in a runtime-loading build they came through a table this run
+    // filled, and a reader comparing two runs needs to know whether that was
+    // so.
+    try out.print("bridge: {s}\n", .{
+        if (random123.runtime_loaded) "runtime-loaded provider" else "linked",
+    });
     try out.writeAll("upstream known answers for counter=0 key=0 at default rounds:\n");
     inline for (random123.generators) |G| {
         const ctr: G.counter = std.mem.zeroes(G.counter);
@@ -118,6 +196,21 @@ pub fn main(init: std.process.Init) !void {
         try printWords(out, G.generate(ctr, key));
         try out.writeAll("\n");
     }
+
+    // The two AES-NI facts are separate, and a dependent that prints only the
+    // first would read it as a claim about this CPU.  `has_aesni` is the build
+    // decision; the probe is the CPUID answer, and it is declared only when the
+    // wrappers are.
+    try out.print(
+        "aesni wrappers compiled: {s}; running cpu aes-ni: {s}\n",
+        .{
+            if (random123.has_aesni) "yes" else "no",
+            if (comptime random123.has_aesni)
+                (if (random123.c.r123_bridge_have_aesni() != 0) "yes" else "no")
+            else
+                "unknown (wrappers not compiled)",
+        },
+    );
 
     try out.print("threefry4x32 1024-counter stream summary: {x:0>16}\n", .{streamSummary()});
     // Raw C oracle, stated rather than compared against the facade: 2^63 is the

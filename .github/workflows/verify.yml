@@ -27,7 +27,12 @@ jobs:
 
       - name: Required fork files are present
         run: |
-          for f in LICENSE NOTICE.md UPSTREAM.md UPSTREAM.sha256 CHANGELOG.md FORK-NOTES.md README.zig.md; do
+          # `flake.lock` is named with `flake.nix` on purpose: `.paths` in
+          # build.zig.zon carries both into a fetched copy, because a flake
+          # without its lock re-resolves against the network on first
+          # evaluation.  If this list is ever relaxed, that pairing is the
+          # thing to relax last.
+          for f in LICENSE NOTICE.md UPSTREAM.md UPSTREAM.sha256 CHANGELOG.md FORK-NOTES.md FORK-LICENSE.md README.upstream.md README.zig.md package.nix flake.nix flake.lock devenv.nix devenv.yaml; do
             test -s "$f" || { echo "missing or empty: $f" >&2; exit 1; }
           done
 
@@ -36,7 +41,14 @@ jobs:
 
       - name: No upstream source tree was modified
         run: |
-          git diff --exit-code v1.14.0 -- include tests examples docs LICENSE README.md GNUmakefile
+          # README.md is not listed: it is this fork's document now. Upstream's
+          # README is carried byte for byte as README.upstream.md and the
+          # sha256sum check above is what proves those bytes.
+          git diff --exit-code v1.14.0 -- include tests examples docs LICENSE GNUmakefile
+
+      - name: Upstream's README is preserved under its own name
+        run: |
+          cmp README.upstream.md <(git show v1.14.0:README.md)
 
       - name: UPSTREAM.md pins the tag this tree was cloned at
         run: |
@@ -50,25 +62,150 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `delivery` carries the `--prefix` for a cell that delivers a tree,
+          # and nothing at all for a cell that does not. Zig's default step
+          # *is* the install step — `build.zig:266` calls `b.installArtifact`
+          # on the bridge — so every cell whose `flags` name no step installs
+          # the library, the upstream header tree, `random123.pc` and the
+          # licence records, and at the default prefix that is `zig-out/`
+          # inside this checkout. Exactly three cells are in that position and
+          # each is named below: `build`, `build-shared` and `install-runtime`.
+          # `$RUNNER_TEMP` is the runner's own directory, outside
+          # `$GITHUB_WORKSPACE`, and it is the same external-delivery rule
+          # `devenv.nix`'s `externalPrefix` states for the local tasks
+          # (`CHANGELOG.md` entry 33). No cell below writes into the tree it
+          # checked out. The cells that name a step take no prefix at all:
+          # `test`, `smoke`, `check` and `consumer` depend on compile and run
+          # steps only, so a prefix there would be a flag that changes nothing.
           - job: build
             flags: ""
+            delivery: '--prefix "$RUNNER_TEMP/random123-install"'
+          - job: build-shared
+            flags: "-Dlinkage=dynamic"
+            delivery: '--prefix "$RUNNER_TEMP/random123-install-shared"'
           - job: test-debug
             flags: "test"
+            delivery: ""
+          - job: test-debug-shared
+            flags: "test -Dlinkage=dynamic"
+            delivery: ""
           - job: test-release-safe
             flags: "test -Doptimize=ReleaseSafe"
+            delivery: ""
           - job: smoke
             flags: "smoke"
+            delivery: ""
+          - job: smoke-shared
+            flags: "smoke -Dlinkage=dynamic"
+            delivery: ""
           - job: check
             flags: "check"
+            delivery: ""
+          - job: check-shared
+            flags: "check -Dlinkage=dynamic"
+            delivery: ""
           - job: consumer
             flags: "consumer"
+            delivery: ""
+          - job: consumer-shared
+            flags: "consumer -Dlinkage=dynamic"
+            delivery: ""
+          # The AES-NI decision is the one option no CPU can imply, and it is
+          # forwarded to the nested `consumer/` build now, so the cell that
+          # proves the forwarding is the one that names it.  It belongs to this
+          # job and not to `runtime` below: that job pins `-Dcpu=baseline` on
+          # both sides, so an aesni=true consumer there would ask a provider
+          # compiled without the five `aesni_bridge_abi_symbols` names
+          # (build.zig) for wrappers that were never built into it.  The
+          # consumer prints the build decision and the CPUID answer
+          # separately, so this cell needs no particular runner CPU -- it
+          # asserts that the wrappers compiled, not that the machine has
+          # AES-NI.
+          - job: consumer-aesni
+            flags: "consumer -Daesni=true"
+            delivery: ""
+          # `-Druntime=true` compiles here without a provider present; the
+          # `runtime` job below is where it is actually run, against a shared
+          # bridge built with a matching AES-NI decision.
+          - job: check-runtime
+            flags: "check -Druntime=true"
+            delivery: ""
+          - job: check-runtime-shared
+            flags: "check -Druntime=true -Dlinkage=dynamic"
+            delivery: ""
+          - job: install-runtime
+            flags: "-Druntime=true"
+            delivery: '--prefix "$RUNNER_TEMP/random123-install-runtime"'
     steps:
       - uses: actions/checkout@v4
       - uses: mlugg/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
       - name: zig build ${{ matrix.flags }}
-        run: zig build ${{ matrix.flags }} --summary all
+        run: zig build ${{ matrix.flags }} ${{ matrix.delivery }} --summary all
+
+  # The runtime route, actually loaded.
+  #
+  # A provider and the consumer that loads it have to agree on the bridge's
+  # symbol set, and that set is 28 entries or 33 depending on the AES-NI
+  # decision, which follows the target CPU rather than a flag. `-Dcpu=baseline`
+  # is therefore passed to the provider build and to every run below, so the
+  # two sides cannot disagree and the agreement is a fact of this file instead
+  # of a fact about whichever machine runs it.
+  #
+  # `RANDOM123_TEST_PROVIDER` is the environment name the test, example and
+  # consumer roots read (`zig/provider.zig`, `consumer/src/main.zig`); each
+  # exits non-zero naming both ways to name a provider when it is given none,
+  # so a missing export is a refusal with a message, never a silent pass.
+  #
+  # Both variables must hold an ABSOLUTE path, and that is enforced, not
+  # incidental: the loader's `.path` source rejects a relative one with
+  # `InvalidSource` (`runtime/loader.zig`, `LoadError.InvalidSource`), because a
+  # relative provider path would silently mean "relative to wherever this
+  # process happens to be running". Do not shorten the value below to a bare
+  # file name to tidy it up; that fails, and it would fail as a refusal with a
+  # reason rather than as a confusing pass.
+  #
+  # The provider is installed under `$RUNNER_TEMP`, the runner's own directory
+  # outside `$GITHUB_WORKSPACE`, and the three steps below name that same
+  # absolute path through `${{ runner.temp }}`. Do not shorten the prefix back
+  # to `"$PWD/provider"` to tidy it up: that is this checkout under another
+  # name, and a build left at its default prefix writes `zig-out/` into it.
+  #
+  # `RANDOM123_TEST_ALIEN` names an object that is NOT this bridge, so the
+  # missing-symbol cases have something real to be refused. Its path is
+  # discovered on the machine below rather than written here, because a path
+  # this file has never observed is not a path this file should assert.
+  runtime:
+    name: runtime-loaded test, smoke and consumer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - name: resolve a foreign object for the missing-symbol cases
+        run: |
+          alien=$(ldconfig -p 2>/dev/null | awk '$1 == "libm.so.6" { print $NF; exit }')
+          if [ -z "$alien" ] || [ ! -e "$alien" ]; then
+            alien=$(ls /lib/*/libm.so.6 /usr/lib/*/libm.so.6 2>/dev/null | head -n 1)
+          fi
+          test -n "$alien" || { echo "no libm.so.6 on this image" >&2; exit 1; }
+          echo "RANDOM123_TEST_ALIEN=$alien" >> "$GITHUB_ENV"
+      - name: build the provider
+        run: zig build -Dlinkage=dynamic -Dcpu=baseline --prefix "$RUNNER_TEMP/provider" --summary all
+      - name: test
+        env:
+          RANDOM123_TEST_PROVIDER: ${{ runner.temp }}/provider/lib/librandom123.so
+        run: zig build test -Druntime=true -Dcpu=baseline --summary all
+      - name: smoke
+        env:
+          RANDOM123_TEST_PROVIDER: ${{ runner.temp }}/provider/lib/librandom123.so
+        run: zig build smoke -Druntime=true -Dcpu=baseline --summary all
+      - name: consumer
+        env:
+          RANDOM123_TEST_PROVIDER: ${{ runner.temp }}/provider/lib/librandom123.so
+        run: zig build consumer -Druntime=true -Dcpu=baseline --summary all
 
   cross:
     name: check ${{ matrix.target }}
@@ -88,10 +225,19 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
-      # Compiled, never executed: no cross-arch emulator is assumed.
+      # Compiled, never executed: no cross-arch emulator is assumed. Both
+      # linkages are attempted for every target: the shared variant compiles
+      # the same bridge C over the same headers, and only the artifact kind,
+      # PIC and the Windows export list differ.
       - name: zig build check -Dtarget=${{ matrix.target }}
         # Upstream gccfeatures.h explicitly rejects these architectures.
         # Keep actual compile attempts visible without claiming support.
         continue-on-error: ${{ matrix.target == 'riscv64-linux-gnu' || matrix.target == 'wasm32-wasi' }}
         run: zig build check -Dtarget=${{ matrix.target }} --summary all
+      - name: zig build check -Dlinkage=dynamic -Dtarget=${{ matrix.target }}
+        continue-on-error: ${{ matrix.target == 'riscv64-linux-gnu' || matrix.target == 'wasm32-wasi' }}
+        run: zig build check -Dlinkage=dynamic -Dtarget=${{ matrix.target }} --summary all
+      - name: zig build check -Druntime=true -Dtarget=${{ matrix.target }}
+        continue-on-error: ${{ matrix.target == 'riscv64-linux-gnu' || matrix.target == 'wasm32-wasi' }}
+        run: zig build check -Druntime=true -Dtarget=${{ matrix.target }} --summary all
 
