@@ -1,46 +1,26 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright 2025 CoffeeImpliesCode contributors.
-//!
-//! A separate package that consumes the Random123 fork as a real dependency.
-//!
-//! It deliberately uses nothing but `b.dependency("random123", …).module(…)`:
-//! the Zig module already links the compiled `librandom123` artifact and
-//! carries the translated C declarations, so a downstream package needs no
-//! extra wiring and no `dep.artifact` call.
-//!
-//! Run with `zig build run` from this directory.
+//! Consumer package using Random123 through `dependency.module("random123")`.
+//! The module supplies the bridge artifact; run this example with `zig build run`.
 
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    // The parent build forwards its own selection verbatim, so the consumer
-    // links the same artifact the parent installed.  `zig build` here without
-    // the flag keeps the package's own default, which is the archive.
+    // Preserve the dependency's linkage choice; static is its default.
     const linkage = b.option(
         std.builtin.LinkMode,
         "linkage",
         "Which bridge artifact to consume: static archive (default) or shared library",
     ) orelse .static;
-    // Forwarded for the same reason as `linkage`: the parent selects the
-    // dispatch shape, and a consumer build that quietly got the other one back
-    // would exercise a configuration nobody chose.  Off by default, matching
-    // the dependency.
+    // Preserve the dependency's runtime-loading choice; disabled by default.
     const runtime_loaded = b.option(
         bool,
         "runtime",
         "Consume the runtime-loaded facade: dispatch through the loader instead of linking",
     ) orelse false;
-    // Nullable, and forwarded as the selection it is rather than as a value
-    // resolved here.  `-Daesni`'s default in the dependency is "follow the
-    // target CPU", which is a decision that dependency makes from the target
-    // it is handed; a null is dropped on the way in
-    // (`lib/std/Build.zig:430-436`, `addUserInputOptionFromArg`), so a build
-    // told nothing leaves that decision where it is.  Copying a default in
-    // here instead would make the two disagree about the wrapper set on every
-    // host whose CPU carries AES-NI, and a consumer would then prove a
-    // configuration the dependency never built.
+    // Forward null so the dependency selects its default from the target CPU.
     const aesni = b.option(
         bool,
         "aesni",
@@ -69,10 +49,6 @@ pub fn build(b: *std.Build) void {
     run.has_side_effects = true;
     if (b.args) |args| run.addArgs(args);
 
-    // `b.step(...)` already returns a `*Build.Step`, and `dependOn` takes that
-    // pointer directly -- there is no `.step` field to take the address of.
-    // The install step is deliberately left alone: `b.installArtifact` above
-    // already installs the executable, and making the default `zig build`
-    // *run* it would turn an ordinary build into a side effect.
+    // Install the executable without running it during the default build.
     b.step("run", "Run the consumer example against the Random123 fork").dependOn(&run.step);
 }

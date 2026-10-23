@@ -1,49 +1,21 @@
-//! Consumer of the Random123 Zig package.
-//!
-//! This is a separate package that reaches Random123 only through
-//! `b.dependency("random123", …).module("random123")`.  It exercises the typed
-//! facade against the upstream known answers from tests/kat_vectors (all-zero
-//! counter and key) and the raw translated C escape hatch, then prints a
-//! deterministic report.
-//!
-//! Every counter and key below is spelled out by this program.  The package
-//! holds no counter, keeps no key and draws nothing from an entropy source, so
-//! the whole of the "random" input to these lines is what you can read here.
-//!
-//! The same source builds against a linked bridge and against a runtime-loaded
-//! one.  `random123.runtime_loaded` is a comptime constant, so the difference is
-//! one branch and no duplicated program: in a runtime-loading build the
-//! provider is named on the command line (`--provider <path>`) or in
-//! `RANDOM123_TEST_PROVIDER`, loaded once, and the same known answers below
-//! follow through the table.  Nothing is loaded by default, no other file is
-//! tried, and a build told nothing exits non-zero naming both ways to say it.
-//!
-//! Run with `zig build run` from the consumer/ directory.
+//! Consumer using the Random123 module for known-answer and raw-C checks.
+//! Fixed inputs make the report deterministic; runtime builds require a named provider.
+//! Run with `zig build run` from this directory.
 
 const std = @import("std");
 const random123 = @import("random123");
 
-/// The environment variable that names a provider when no `--provider` argument
-/// is given.  Spelled here rather than imported: this is a separate package and
-/// reaches Random123 only through its published module, so the name is part of
-/// what the package documents rather than something it can share.
+/// Environment variable naming the runtime provider when `--provider` is absent.
 const provider_variable = "RANDOM123_TEST_PROVIDER";
 
-/// This build is runtime-loaded and was not told which provider to load.
-///
-/// Separate from `random123.LoadError` on purpose: every member of that set is
-/// something the loader checked about a request it *was* given, and this is the
-/// absence of a request.
+/// Distinguish an absent provider request from errors for a named request.
 const NoProviderConfigured = error{NoProviderConfigured};
 
-/// Everything `loadProvider` can decline: the loader's own errors, which come
-/// from the request it forwards, plus the absence of a request to forward.
+/// Errors from provider selection and loading.
 const LoadFailure = NoProviderConfigured || random123.LoadError;
 
-/// Load the provider, or stop without one.
-///
-/// In a linked build the body is compiled out and the bridge is already there,
-/// so this costs the consumer nothing and cannot fail.
+/// Load the named provider in runtime builds; linked builds do nothing.
+/// Runtime mode requires `--provider` or `RANDOM123_TEST_PROVIDER`.
 fn loadProvider(init: std.process.Init) LoadFailure!void {
     if (comptime !random123.runtime_loaded) return;
     const args = init.minimal.args.toSlice(init.arena.allocator()) catch &.{};
@@ -53,7 +25,7 @@ fn loadProvider(init: std.process.Init) LoadFailure!void {
     return noProvider();
 }
 
-/// The path that follows `--provider`, or null when the arguments name none.
+/// Return the argument after `--provider`, or null when none is present.
 fn fromArgs(argv: []const [:0]const u8) ?[]const u8 {
     var index: usize = 1;
     while (index < argv.len) : (index += 1) {
@@ -64,8 +36,7 @@ fn fromArgs(argv: []const [:0]const u8) ?[]const u8 {
     return null;
 }
 
-/// Say which variable is missing.  An error name alone would send the next
-/// person into the loader instead of to the command line.
+/// Print the missing-provider configuration hint.
 fn noProvider() NoProviderConfigured {
     std.debug.print(
         "consumer: this is a runtime-loading build and was not told which " ++
@@ -96,8 +67,7 @@ fn printWords(out: *std.Io.Writer, words: anytype) !void {
     }
 }
 
-/// Upstream known answers for an all-zero counter and key, at the upstream
-/// default round counts.  Source: Random123 1.14.0, tests/kat_vectors.
+/// Check upstream known answers for zero counters and keys.
 fn verifyKnownAnswers() !void {
     const P2x32 = random123.Philox2x32;
     try expectWords(P2x32.counter, P2x32.generate(.{ 0, 0 }, .{0}), .{ 0xff1dae59, 0x6cd10df2 });
@@ -136,9 +106,7 @@ fn verifyKnownAnswers() !void {
     });
 }
 
-/// A real use: one Threefry4x32 counter stream turned into doubles with the
-/// `random123.UnitInterval` conversion, reduced to a single integer summary so
-/// the output is identical on every conforming platform.
+/// Summarize 1024 Threefry blocks and their converted interval values.
 fn streamSummary() u64 {
     const G = random123.Threefry4x32;
     const key = G.key{ 0x243f6a88, 0x85a308d3, 0x13198a2e, 0x03707344 };
@@ -150,12 +118,11 @@ fn streamSummary() u64 {
         const block = G.generate(ctr, key);
         for (block) |word| summary +%= @as(u64, word);
 
-        // The half-open double conversion of one word is exactly i * 2^-53, so
-        // scaling by 2^53 recovers the integer i with no rounding at all.
+        // Scaling by 2^53 recovers this exactly represented integer.
         const unit = random123.UnitInterval.closedOpen64Double(@as(u64, block[0]));
         summary +%= @intFromFloat(unit * 9007199254740992.0);
 
-        // Little-endian carry through all four counter words.
+        // Increment the little-endian counter.
         ctr[0] +%= 1;
         if (ctr[0] == 0) {
             ctr[1] +%= 1;
@@ -169,10 +136,8 @@ fn streamSummary() u64 {
 }
 
 pub fn main(init: std.process.Init) !void {
-    // Before anything reaches the bridge. In a linked build this compiles to
-    // nothing and every call below is the ordinary linked one.
-    try loadProvider(init);
 
+    try loadProvider(init);
     try verifyKnownAnswers();
 
     var buffer: [4096]u8 = undefined;
@@ -181,10 +146,6 @@ pub fn main(init: std.process.Init) !void {
     defer out.flush() catch {};
 
     try out.writeAll("random123 consumer\n");
-    // Which configuration produced the answers below, stated rather than
-    // implied: in a runtime-loading build they came through a table this run
-    // filled, and a reader comparing two runs needs to know whether that was
-    // so.
     try out.print("bridge: {s}\n", .{
         if (random123.runtime_loaded) "runtime-loaded provider" else "linked",
     });
@@ -197,10 +158,6 @@ pub fn main(init: std.process.Init) !void {
         try out.writeAll("\n");
     }
 
-    // The two AES-NI facts are separate, and a dependent that prints only the
-    // first would read it as a claim about this CPU.  `has_aesni` is the build
-    // decision; the probe is the CPUID answer, and it is declared only when the
-    // wrappers are.
     try out.print(
         "aesni wrappers compiled: {s}; running cpu aes-ni: {s}\n",
         .{
@@ -213,11 +170,7 @@ pub fn main(init: std.process.Init) !void {
     );
 
     try out.print("threefry4x32 1024-counter stream summary: {x:0>16}\n", .{streamSummary()});
-    // Raw C oracle, stated rather than compared against the facade: 2^63 is the
-    // median of the u64 domain, and `u01fixedpt_closed_open_64_double` is
-    // `(i >> 11) * 2^-53` (u01fixedpt.h:160-162, :122), so the median word maps
-    // to `2^52 * 2^-53` = exactly 0.5.  Both operands are exactly representable,
-    // so `!=` here is an equality test, not a tolerance.
+    // Upstream maps `i` as `(i >> 11) * 2^-53`; `2^63` therefore gives exact `0.5`.
     const raw_interval = random123.c.r123_bridge_u01_closed_open_64_double(0x8000000000000000);
     if (raw_interval != 0.5) return error.RawOracleMismatch;
     try out.print("raw C u01: closedOpen64Double(0x8000000000000000) = {d}\n", .{raw_interval});

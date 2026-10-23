@@ -1,31 +1,6 @@
-//! Known-answer tests against the upstream Random123 fixture.
-//!
-// tests/kat_vectors is the upstream reference file: tuples of
-// (generator, round count, counter, key, expected output) produced by the
-// reference implementation that passed the TestU01 SmallCrush/Crush/BigCrush
-// batteries.  It is byte-order independent by construction.
-//
-// The bytes come from the build through the test-only `kat_vectors` import,
-// whose generated root is `pub const data = @embedFile("kat_vectors")` over a
-//! verbatim copy of upstream's file.  Nothing in this source tree holds a
-//! second copy, so the fixture cannot drift away from upstream, and the copy
-//! the build reads is the one `UPSTREAM.sha256` covers.
-//!
-//! Provenance: D. E. Shaw Research, Random123 1.14.0, tests/kat_vectors.
-//!
-//! ## The provider, in a runtime-loading build
-//!
-//! These are the same tests in both configurations, and the answers must be the
-//! same in both. In a linked build the bridge is linked and there is nothing to
-//! do. In a runtime-loading build nothing is linked, so `RANDOM123_TEST_PROVIDER`
-//! has to name a shared object before the first call, and this root stops
-//! without one rather than skipping: a replay of upstream's known answers that
-//! ran against nothing would pass while proving nothing.
-//!
-//! The answers themselves are unchanged by either configuration, which is the
-//! point of running them in both: a dispatch that reached a different
-//! arithmetic, or passed a counter wrongly by value, would produce different
-//! words here.
+//! Replays D. E. Shaw Research's `tests/kat_vectors` fixture through typed and raw C APIs.
+//! The build embeds the fixture bytes; runtime-loading tests require a named provider.
+//! AES-NI/ARS cases require compiled wrappers and a CPU that supports AES-NI.
 
 const std = @import("std");
 const random123 = @import("random123");
@@ -33,12 +8,8 @@ const provider = @import("provider.zig");
 
 const kat_source = @import("kat_vectors").data;
 
-/// Load the provider, or stop without one.
-///
-/// Called at the top of every test rather than once at file scope: a Zig test
-/// binary runs its tests in source order, and a load at the top level would run
-/// before the test runner existed. The load is idempotent for the same request,
-/// so the second and later calls cost one acquire load and change nothing.
+/// Loads the configured provider; runtime tests fail rather than skip without one.
+/// Call per test because the runner starts after file scope; same-provider loads are idempotent.
 fn loadProvider() !void {
     if (comptime !random123.runtime_loaded) return;
     const named = provider.fromBlock(std.testing.allocator, std.testing.environ);
@@ -64,8 +35,7 @@ const algorithms = [_]Algorithm{
     .{ .name = "threefry4x64", .Generator = random123.Threefry4x64, .n_ctr = 4, .n_key = 4 },
 };
 
-/// The n-th whitespace-separated token of `s`, as a slice of `s`.  No
-/// allocation: the fixture is parsed in place.
+/// Returns the nth whitespace token as a slice without allocating.
 fn token(s: []const u8, n: usize) []const u8 {
     var i: usize = 0;
     var remaining = n;
@@ -91,20 +61,13 @@ fn isAesFamily(name: []const u8) bool {
     return std.mem.eql(u8, name, "aesni4x32") or std.mem.eql(u8, name, "ars4x32");
 }
 
-/// The type of parameter `index` of a function type, whether it is named
-/// directly or reached through a pointer to one.
-///
-/// Storing a function in a struct field or tuple element gives a pointer to it,
-/// and a translated `extern fn` named directly gives the function itself, so the
-/// two spellings of the same declaration differ by exactly one level. This
-/// accepts both, which is what lets the raw table below hold function values and
-/// still read the struct types back out of them.
+/// Reads a function parameter type from a function or function pointer.
+/// Container fields are pointers; direct `extern fn` declarations are function types.
 fn FnParam(comptime F: type, comptime index: usize) type {
     const info = @typeInfo(F);
     const function = switch (info) {
         .@"fn" => |f| f,
-        // A pointer to a function, which is what a function stored in a
-        // container becomes.
+        // A function stored in a container is represented by a pointer.
         .pointer => |p| switch (@typeInfo(p.child)) {
             .@"fn" => |f| f,
             else => @compileError("random123: expected a function pointer"),
@@ -116,26 +79,20 @@ fn FnParam(comptime F: type, comptime index: usize) type {
 
 test "known answers for every portable generator" {
     try loadProvider();
-    // One replay count per generator, so the test cannot pass while one of the
-    // eight is missing from the fixture or from the dispatch table.
+    // Require at least one fixture row per generator.
     var replayed = [_]usize{0} ** algorithms.len;
     var checked: usize = 0;
     var lines = std.mem.splitScalar(u8, kat_source, '\n');
     while (nextVector(&lines)) |line| {
         const name = token(line, 0);
-        // The AES-NI/ARS lines in the fixture are covered by the next test,
-        // which only runs where this build actually has AES-NI.
+        // AES-NI/ARS fixture rows are checked only when this build includes the wrappers.
         if (isAesFamily(name)) continue;
         const rounds = try std.fmt.parseInt(u32, token(line, 1), 10);
 
         var matched = false;
         inline for (algorithms, 0..) |alg, index| {
-            // `name` comes out of the fixture at run time, so it cannot drive
-            // the unrolled loop: a `continue` here would be comptime control
-            // flow reached from a runtime branch, which the compiler rejects.
-            // The comparison therefore selects a block, which is ordinary
-            // runtime control flow, and the unrolled loop only supplies the
-            // comptime generator type and its array lengths.
+            // Fixture names are runtime data, so select a block inside the comptime-unrolled loop.
+            // The loop supplies each generator type and array shape.
             if (std.mem.eql(u8, name, alg.name)) {
                 matched = true;
                 replayed[index] += 1;
@@ -163,9 +120,7 @@ test "known answers for every portable generator" {
     }
     try std.testing.expect(checked > 0);
 
-    // `algorithms` carries a `type` field, so it cannot be walked at run
-    // time at all; the check is a comptime walk over the same table the
-    // dispatch above used.
+    // Check every generator at comptime; the table carries their types.
     inline for (algorithms, 0..) |alg, index| {
         if (replayed[index] == 0) {
             std.debug.print("no upstream known answer was replayed for {s}\n", .{alg.name});
@@ -175,20 +130,14 @@ test "known answers for every portable generator" {
 }
 
 test "known answers for AES-NI and ARS when this build has AES-NI" {
-    // comptime, so the rest of this test is not analysed -- and the missing
-    // AES-NI declarations are not referenced -- when AES-NI is not built in.
+    // Compile-time return avoids references to AES-NI wrappers absent from this build.
     if (comptime !random123.has_aesni) return error.SkipZigTest;
-    // Loaded before the probe below, because the probe is one of the routed
-    // entry points and a runtime-loading build has no provider until it is
-    // named. Above the `has_aesni` check would be wrong: a build without the
-    // wrappers has nothing to replay and must not demand a provider for it.
+    // Load only after confirming wrappers exist; otherwise runtime builds would demand an unused provider.
     try loadProvider();
-    // Compiled with -maes does not mean the running CPU has AES-NI; upstream
-    // ships this exact CPUID probe for the runtime check.
+    // Compile-time AES-NI support does not prove the runtime CPU supports it.
     if (random123.c.r123_bridge_have_aesni() == 0) return error.SkipZigTest;
 
-    // Counted per family: a fixture that lost every AES-NI line, or every ARS
-    // line, must fail rather than pass on whichever family survived.
+    // Require fixture rows for both AES-NI and ARS.
     var aesni_replayed: usize = 0;
     var ars_replayed: usize = 0;
     var lines = std.mem.splitScalar(u8, kat_source, '\n');
@@ -222,34 +171,14 @@ test "known answers for AES-NI and ARS when this build has AES-NI" {
     try std.testing.expect(ars_replayed > 0);
 }
 
-// ---------------------------------------------------------------------------
-// The raw C route.
-//
-// Everything above reaches the bridge through the typed facade, which is one
-// caller of the `r123_bridge_*` names and not the only one. This block is the
-// other caller: it drives all twenty-eight common entry points -- eight
-// `keyinit` wrappers and eight `_R` round functions, plus the twelve
-// `u01_*` conversions -- directly through `c`, in the upstream
-// `r123arrayNxW` struct form, with the same upstream fixture as the oracle.
-//
-// The point is not to check the facade against itself. Every expected word is
-// read out of `tests/kat_vectors`, and the two routes are compared against
-// that same external file, so a dispatch that reached the wrong table entry,
-// passed a counter wrongly by value, or returned a struct whose words came
-// back in the wrong order produces different words here rather than agreeing
-// with the facade.
-
+// Raw C tests call bridge wrappers directly, independently of the typed facade.
+// The upstream fixture checks the C route without using the facade as its own oracle.
 
 test "the raw C keyinit and round wrappers replay upstream's known answers" {
     try loadProvider();
 
-    // The eight pairs, as a tuple rather than an array: each carries its own
-    // `struct_r123arrayNxW` types, and eight distinct types cannot share one
-    // array element type. `inline for` unrolls over the tuple, so each entry is
-    // seen at its own comptime type. Naming every entry point explicitly is the
-    // point of the block: a wrapper that stopped being declared, or stopped
-    // being routed, stops this from compiling rather than quietly dropping out
-    // of the replay.
+    // Keep wrapper pairs in a tuple because each translated array has a distinct type.
+    // Explicit entries make missing or unrouted wrappers compile-time failures.
     const raws = .{
         .{
             .name = "philox2x32",
@@ -302,29 +231,19 @@ test "the raw C keyinit and round wrappers replay upstream's known answers" {
 
         var matched = false;
         inline for (raws, 0..) |alg, index| {
-            // `name` comes out of the fixture at run time, so it cannot drive
-            // the unrolled loop: `continue` here would be comptime control flow
-            // reached from a runtime branch. The comparison selects a block,
-            // which is ordinary runtime control flow, and the unrolled loop
-            // supplies only the comptime entry and its array lengths.
+            // Fixture names are runtime data; select a block inside the comptime-unrolled loop.
+            // The loop supplies each raw function type and array shape.
             if (std.mem.eql(u8, name, alg.name)) {
                 matched = true;
                 replayed[index] += 1;
 
-                // The counter type is the round wrapper's own second parameter
-                // and the key type is the keyinit wrapper's parameter, both read out of
-                // the translated declarations rather than restated here, so this
-                // block follows the header if the header moves. A function stored in
-                // a field is a pointer, so the function type is one level in.
+                // Read counter/key types from translated function parameters, unwrapping tuple-field pointers.
+                // This keeps the replay tied to the declarations.
                 const Ctr = FnParam(@TypeOf(alg.round), 1);
                 const Key = FnParam(@TypeOf(alg.keyinit), 0);
 
-                // The word counts come from the structs rather than from the
-                // literals in the table above: `r123arrayNxW` is a bare `[N]Word`
-                // and the bridge static-asserts every one of those sizes, so the
-                // array length *is* the counter and key width upstream defines. A
-                // table entry that disagreed with its own struct would then fail
-                // here instead of reading the wrong number of fixture words.
+                // Derive word counts from translated structs; the bridge asserts their sizes.
+                // A table mismatch then fails while parsing fixture words.
                 const ctr_words = @typeInfo(@FieldType(Ctr, "v")).array.len;
                 const key_words = @typeInfo(@FieldType(Key, "v")).array.len;
                 const Word = @typeInfo(@FieldType(Ctr, "v")).array.child;
@@ -338,9 +257,7 @@ test "the raw C keyinit and round wrappers replay upstream's known answers" {
                     ukey.v[i] = @truncate(try std.fmt.parseInt(u64, token(line, 2 + ctr_words + i), 16));
                 }
 
-                // The key goes through the C keyinit wrapper on the way to the
-                // round function, so that wrapper's own signature and its by-value
-                // return are exercised rather than only the round function's.
+                // Exercise the C keyinit wrapper before the round function.
                 const keyed = alg.keyinit(ukey);
                 const got = alg.round(@intCast(rounds), ctr, keyed);
 

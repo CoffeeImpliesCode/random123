@@ -1,14 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright 2026 CoffeeImpliesCode contributors.
 #
-# One derivation for this SDK. Variants live in the entry points
-# (flake.nix `packages.<system>.static` / `.shared`, devenv.nix
-# `outputs.static` / `outputs.shared`), not in here.
-#
-# Source-only: `src` is this directory, nothing is fetched, no sibling workspace
-# is imported, no host path appears. Nix copies a Git work tree as its tracked
-# files, so every file the build or the licence closure needs has to be
-# committed before a flake build sees it.
+# One source-only derivation shared by flake and devenv outputs.
 { lib
 , stdenv
 , zig
@@ -48,8 +41,7 @@ stdenv.mkDerivation {
 
   strictDeps = true;
 
-  # The zig setup hook appends `-Dcpu=baseline --release=safe` unless this is
-  # set. Both are wanted, but as explicit arguments below.
+  # Set Zig flags explicitly in installPhase.
   dontSetZigDefaultFlags = true;
 
   nativeBuildInputs = [ zig ];
@@ -57,13 +49,10 @@ stdenv.mkDerivation {
   dontConfigure = true;
   dontBuild = true;
   dontCheck = true;
-  # Without this the Zig setup hook substitutes its own `zig build test` for the
-  # check phase, which is a second, differently-flagged build of the same tree.
+  # Disable the Zig setup hook's alternate check phase.
   dontUseZigCheck = true;
 
-  # The build graph owns the source list, the C flags, and the installation of
-  # the artifact, the headers, random123.pc and the licence records. This phase
-  # only selects delivery options and places the caches.
+  # Select delivery options and caches; build.zig installs the artifacts.
   installPhase = ''
     runHook preInstall
 
@@ -85,8 +74,6 @@ stdenv.mkDerivation {
     runHook postInstall
   '';
 
-  # tests/kat_vectors is test material, not installed output; the Zig manifest
-  # (.paths) carries it for the known-answer test. Not installed here.
 
   doCheck = false;
 
@@ -102,8 +89,7 @@ stdenv.mkDerivation {
       for cryptography or security.
     '';
     homepage = "https://github.com/DEShawResearch/random123";
-    # Summary label only. include/Random123/features/pgccfeatures.h carries a
-    # second notice (Los Alamos National Security, LLC); see NOTICE.md section 3.
+    # Additional upstream header notices are recorded in NOTICE.md.
     license = lib.licenses.bsd3;
     platforms = lib.platforms.unix;
   };
