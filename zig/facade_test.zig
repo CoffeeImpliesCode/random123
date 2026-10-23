@@ -90,7 +90,7 @@ test "a counter stream with a carry produces pairwise distinct outputs" {
 
         for (results, 0..) |a, i| {
             for (results[i + 1 ..], i + 1..) |b, j| {
-                // Compare arrays element-wise; Zig 0.16 does not provide array `==`.
+                // Compare arrays element-wise; Zig does not provide array `==`.
                 if (std.meta.eql(a, b)) {
                     std.debug.print("{s}: counters {d} and {d} collided\n", .{ G.name, i, j });
                     return error.TestUnexpectedResult;

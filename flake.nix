@@ -5,7 +5,7 @@
 {
   description = "Random123 counter-based random number generators, compiled for Zig, C and C++";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/c7def046b9a883d46974757852106483d741586f";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/02c087f3fe673c9e317f206a627cb6b910336dbe";
 
   outputs =
     { nixpkgs, ... }:
@@ -21,11 +21,11 @@
     {
       packages = forAllSystems (pkgs: rec {
         static = pkgs.callPackage ./package.nix {
-          zig = pkgs.zig_0_16;
+          zig = pkgs.zig_0_17;
           linkage = "static";
         };
         shared = pkgs.callPackage ./package.nix {
-          zig = pkgs.zig_0_16;
+          zig = pkgs.zig_0_17;
           linkage = "dynamic";
         };
         default = static;

@@ -1,5 +1,5 @@
 //! Random123 1.14.0 -- a library of counter-based random number generators,
-//! from D. E. Shaw Research, packaged for Zig 0.16.
+//! from D. E. Shaw Research, packaged for Zig 0.17.0.
 //!
 //! The algorithms are the genuine upstream C ones.  This package compiles a
 //! thin bridge translation unit that gives the upstream `static __inline__`
@@ -356,7 +356,7 @@ pub const generators = .{
 /// upstream's arithmetic, its range and its grid unchanged, and nothing here
 /// converts, clamps or re-rounds a value.  Only the spelling differs: the
 /// namespace is `UnitInterval` rather than upstream's `u01`, because `u01` is
-/// a primitive type name in Zig 0.16 and cannot be used as a declaration name.
+/// a primitive type name in Zig and cannot be used as a declaration name.
 /// The upstream names survive on the raw escape hatch.
 ///
 /// Every member is `<range><Word><Type>`, where the two range words say which

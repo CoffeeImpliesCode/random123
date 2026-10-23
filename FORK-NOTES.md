@@ -17,7 +17,8 @@
 | `runtime/sync.c` | Implements loader synchronization with Windows, POSIX, or single-threaded WASI/Emscripten primitives. |
 | `zig/analyze_test.zig` | Calls each public method and a custom generator so Zig's lazy analysis checks their bodies. |
 | `zig/facade_test.zig` | Exercises generator and interval-conversion behavior, including counter and key boundaries. |
-| `zig/kat_test.zig` | Replays upstream known-answer vectors through the typed facade and raw C bridge. |
+| `zig/kat_test.zig` | Replays upstream known-answer vectors through the typed facade and raw C bridge; reads Zig 0.17 function parameter types through `param_types`. |
+| `zig/consumer_build.zig` | Launches the nested build with maker-resolved global-cache and Zig-library paths in its environment. |
 | `runtime/load_tests.zig` | Exercises loader refusals, retry, idempotence, provider mismatch, and concurrent calls with named libraries. |
 | `zig/smoke.zig` | Demonstrates known outputs and a deterministic Threefry Monte Carlo stream without entropy or cryptographic use. |
 
@@ -29,6 +30,9 @@
 - Runtime mode generates dispatch from the selected translation, loads an explicit bridge provider, and omits the bridge link; linked mode calls the same ABI directly.
 - Static linkage is the default; dynamic linkage builds the same bridge ABI as a shared library. AES-NI/ARS wrappers follow the target feature selection.
 - There is no system-library build mode or fetched dependency.
+- The nested consumer build passes Zig 0.17's maker-resolved install prefix because the configure API no longer exposes its string.
+- Zig 0.17 nested builds use `ZIG_GLOBAL_CACHE_DIR` and `ZIG_LIB_DIR`; the maker rejects their former command-line flags.
+- The nested consumer step runs only native and Rosetta targets because executor flags are not available during configuration.
 
 ## Platform boundaries
 

@@ -74,13 +74,13 @@ fn FnParam(comptime F: type, comptime index: usize) type {
         },
         else => @compileError("random123: expected a function or a pointer to one"),
     };
-    return function.params[index].type.?;
+    return function.param_types[index].?;
 }
 
 test "known answers for every portable generator" {
     try loadProvider();
     // Require at least one fixture row per generator.
-    var replayed = [_]usize{0} ** algorithms.len;
+    var replayed: [algorithms.len]usize = @splat(0);
     var checked: usize = 0;
     var lines = std.mem.splitScalar(u8, kat_source, '\n');
     while (nextVector(&lines)) |line| {
@@ -222,7 +222,7 @@ test "the raw C keyinit and round wrappers replay upstream's known answers" {
         },
     };
 
-    var replayed = [_]usize{0} ** raws.len;
+    var replayed: [raws.len]usize = @splat(0);
     var lines = std.mem.splitScalar(u8, kat_source, '\n');
     while (nextVector(&lines)) |line| {
         const name = token(line, 0);

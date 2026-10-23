@@ -11,7 +11,7 @@
 , aesni ? false # Paired with -Dcpu=baseline, so it defaults off.
 }:
 
-assert zig.version == "0.16.0";
+assert zig.version == "0.17.0";
 assert builtins.elem linkage [ "static" "dynamic" ];
 assert lib.assertMsg (stdenv.hostPlatform.system == stdenv.buildPlatform.system)
   "random123/package.nix builds for the build platform; no Nix cross build here";

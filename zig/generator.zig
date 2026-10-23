@@ -9,7 +9,7 @@ fn specArrayType(
     comptime generator: []const u8,
     comptime field_name: []const u8,
     comptime T: type,
-) std.builtin.Type.Array {
+) std.lang.Type.Array {
     return switch (@typeInfo(T)) {
         .array => |array| array,
         else => @compileError("random123: " ++ generator ++ ": " ++ field_name ++
@@ -76,7 +76,7 @@ pub fn Generator(comptime spec: anytype) type {
         /// `R > max_rounds` traps in every optimization mode; custom callbacks own state, allocation, and thread-safety.
         pub inline fn rounds(R: u32, ctr: counter, k: key) counter {
             if (R > max_rounds) {
-                // Use std.debug.panic to format the diagnostic; @panic accepts no arguments in Zig 0.16.
+                // Use std.debug.panic to format the diagnostic; @panic accepts no arguments.
                 std.debug.panic(
                     "random123: round count {d} exceeds max_rounds {d} for {s}",
                     .{ R, max_rounds, name },

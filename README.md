@@ -1,6 +1,6 @@
 # Random123
 
-Random123 v1.14.0 is a header-only, counter-based random-number library for C and C++; this Zig 0.16.0 package adds a C ABI bridge and typed facade.
+Random123 v1.14.0 is a header-only, counter-based random-number library for C and C++; this Zig 0.17.0 package adds a C ABI bridge and typed facade.
 Use it for statistical and Monte Carlo work, not cryptography or security.
 
 ## Source deviations

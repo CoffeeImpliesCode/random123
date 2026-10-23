@@ -10,7 +10,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     // Preserve the dependency's linkage choice; static is its default.
     const linkage = b.option(
-        std.builtin.LinkMode,
+        std.lang.LinkMode,
         "linkage",
         "Which bridge artifact to consume: static archive (default) or shared library",
     ) orelse .static;
@@ -47,7 +47,7 @@ pub fn build(b: *std.Build) void {
 
     const run = b.addRunArtifact(exe);
     run.has_side_effects = true;
-    if (b.args) |args| run.addArgs(args);
+    run.addPassthruArgs();
 
     // Install the executable without running it during the default build.
     b.step("run", "Run the consumer example against the Random123 fork").dependOn(&run.step);

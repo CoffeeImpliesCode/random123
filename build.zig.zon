@@ -4,7 +4,7 @@
     .name = .random123,
     // Upstream release version.
     .version = "1.14.0",
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     // Package-specific fingerprint.
     .fingerprint = 0xc9d650ae8c9fc996,
 

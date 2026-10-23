@@ -5,7 +5,7 @@
 { pkgs, lib, ... }:
 
 let
-  zig = pkgs.zig_0_16;
+  zig = pkgs.zig_0_17;
   staticPkg = pkgs.callPackage ./package.nix { inherit zig; linkage = "static"; };
   sharedPkg = pkgs.callPackage ./package.nix { inherit zig; linkage = "dynamic"; };
 
@@ -71,8 +71,8 @@ in
 
   assertions = [
     {
-      assertion = zig.version == "0.16.0";
-      message = "random123 needs Zig 0.16.0; devenv.yaml pins the nixpkgs providing pkgs.zig_0_16.";
+      assertion = zig.version == "0.17.0";
+      message = "random123 needs Zig 0.17.0; devenv.yaml pins the nixpkgs providing pkgs.zig_0_17.";
     }
   ];
 
