@@ -41,12 +41,10 @@ The last two targets reach upstream's `features/gccfeatures.h` architecture erro
 
 ## Consumption
 
-Add the package by path in `build.zig.zon`:
+Fetch the package from GitHub:
 
-```zig
-.dependencies = .{
-    .random123 = .{ .path = "../random123" },
-},
+```sh
+zig fetch --save git+https://github.com/CoffeeImpliesCode/random123#v1.14.0
 ```
 
 Import the Zig module from `build.zig`:
