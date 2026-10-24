@@ -172,10 +172,12 @@ pub fn build(b: *std.Build) void {
         addCheck(b, check_step, withX86Aesni(b, target), optimize, true, linkage, runtime_loaded, kat_vectors);
     }
 
-    const matrix_step = b.step("matrix", "Compile-check all six required targets");
-    inline for (verify_matrix) |query| {
+    const matrix_step = b.step("matrix", "Compile-check the target matrix for the selected linkage and runtime mode");
+    for (verify_matrix) |query| {
         const resolved = b.resolveTargetQuery(query);
-        const matrix_target = resolveAesniTarget(b, resolved, aesni_option);
+        if (resolved.result.os.tag == .wasi and (linkage == .dynamic or runtime_loaded)) continue;
+        // Matrix CPUs use their own AES defaults, independent of the selected target's override.
+        const matrix_target = resolveAesniTarget(b, resolved, null);
         addCheck(b, matrix_step, matrix_target.target, optimize, matrix_target.aesni, linkage, runtime_loaded, kat_vectors);
         if (isX86(resolved)) {
             addCheck(b, matrix_step, withX86Aesni(b, resolved), optimize, true, linkage, runtime_loaded, kat_vectors);

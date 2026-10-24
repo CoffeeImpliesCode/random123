@@ -37,6 +37,8 @@ The optional runtime graph generates dispatch from the selected translation and 
 
 The last two targets reach upstream's `features/gccfeatures.h` architecture error. Runtime loading also requires the platform loader; it is unavailable on WASI, Emscripten and freestanding targets.
 
+`zig build matrix` uses each target CPU's AES-NI default and also checks enabled AES-NI on x86. It omits WASI for dynamic linkage or runtime loading, which require a platform dynamic loader.
+
 ## Consumption
 
 Add the package by path in `build.zig.zon`:
@@ -69,7 +71,7 @@ The artifact installs all 26 upstream headers, `random123_bridge.h`, and `random
 | `-Dtarget`, `-Dcpu`, `-Doptimize` | Zig defaults | Select target, CPU and optimization mode. |
 | `-Dlinkage=static\|dynamic` | `static` | Select the library artifact. |
 | `-Druntime=true\|false` | `false` | Use explicit runtime dispatch instead of direct linked calls; independent of artifact linkage. |
-| `-Daesni=true\|false` | Follow target CPU | Compile or omit AES-NI and ARS wrappers; `true` is an error on non-x86 targets. |
+| `-Daesni=true\|false` | Follow target CPU | Compile or omit AES-NI and ARS wrappers for the selected target and consumer; `true` is an error when that target is non-x86. |
 | `--prefix PATH` | `zig-out` | Choose the install prefix. |
 
 See `LICENSE`, `NOTICE.md` and `FORK-LICENSE.md` for licensing terms.

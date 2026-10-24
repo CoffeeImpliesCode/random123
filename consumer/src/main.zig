@@ -136,7 +136,6 @@ fn streamSummary() u64 {
 }
 
 pub fn main(init: std.process.Init) !void {
-
     try loadProvider(init);
     try verifyKnownAnswers();
 

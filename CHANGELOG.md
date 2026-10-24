@@ -2,6 +2,7 @@
 
 Changes relative to Random123 v1.14.0.
 
+- Keep the selected target's AES-NI override out of the cross-target matrix; omit WASI matrix entries for dynamic linkage or runtime loading.
 - Port to Zig 0.17.0.
 - Zig 0.17 consumer builds run only native or Rosetta targets; other cross targets build without execution.
 - `zig build consumer` forwards resolved build options, optional AES-NI, cache and prefix paths, and caller arguments to its nested build.
